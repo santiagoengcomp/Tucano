@@ -26,6 +26,10 @@ const DATA_FILE = path.join(__dirname, "data.json");
 const PORT = process.env.PORT || 4000;
 
 /* ---------------- banco de dados em arquivo ---------------- */
+function defaultSettings() {
+  return { storeName: "Tucano", freeShipMin: 149, shipFee: 19.9, announcement: "Frete grátis acima de R$ 149 · Até 10x sem juros" };
+}
+
 function seed() {
   const catalog = JSON.parse(fs.readFileSync(path.join(ROOT, "src", "data", "catalog.json"), "utf-8"));
   return {
@@ -36,12 +40,27 @@ function seed() {
     products: catalog.products,
     reviews: catalog.reviews,
     orders: [],
+    categories: catalog.categories,
+    promos: [
+      { id: "promo_bemvindo", code: "BEMVINDO10", type: "percent", value: 10, active: true, minOrder: 0, expiresAt: null, usedCount: 0, createdAt: Date.now() },
+      { id: "promo_frete", code: "FRETE20", type: "fixed", value: 20, active: true, minOrder: 100, expiresAt: null, usedCount: 0, createdAt: Date.now() },
+    ],
+    settings: defaultSettings(),
   };
+}
+
+/* garante campos novos em bancos antigos */
+function normalize(db) {
+  const catalog = JSON.parse(fs.readFileSync(path.join(ROOT, "src", "data", "catalog.json"), "utf-8"));
+  if (!Array.isArray(db.categories)) db.categories = catalog.categories;
+  if (!Array.isArray(db.promos)) db.promos = [];
+  if (!db.settings) db.settings = defaultSettings();
+  return db;
 }
 
 function load() {
   try {
-    return JSON.parse(fs.readFileSync(DATA_FILE, "utf-8"));
+    return normalize(JSON.parse(fs.readFileSync(DATA_FILE, "utf-8")));
   } catch {
     const db = seed();
     save(db);
@@ -123,11 +142,106 @@ http.createServer(async (req, res) => {
     const b = ["POST", "PUT", "PATCH"].includes(m) ? await body(req) : null;
 
     try {
-      /* categorias e produtos */
-      if (m === "GET" && p === "/api/categories") {
-        const catalog = JSON.parse(fs.readFileSync(path.join(ROOT, "src", "data", "catalog.json"), "utf-8"));
-        return json(res, 200, catalog.categories);
+      /* categorias (CRUD) */
+      if (p === "/api/categories" && m === "GET") return json(res, 200, db.categories);
+      if (p === "/api/categories" && m === "POST") {
+        if (!auth(req, db, true)) return err(res, 401, "Acesso restrito à administração.");
+        const label = (b?.label || "").trim();
+        if (label.length < 2) return err(res, 400, "Informe um nome de categoria válido.");
+        const id = label.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+        if (db.categories.some((c) => c.id === id)) return err(res, 409, "Já existe uma categoria com esse nome.");
+        const cat = { id, label };
+        db.categories.push(cat);
+        save(db);
+        return json(res, 200, [cat]);
       }
+      match = p.match(/^\/api\/categories\/([^/]+)$/);
+      if (match && m === "PUT") {
+        if (!auth(req, db, true)) return err(res, 401, "Acesso restrito à administração.");
+        const cat = db.categories.find((c) => c.id === match[1]);
+        if (!cat) return err(res, 404, "Categoria não encontrada.");
+        if ((b?.label || "").trim().length < 2) return err(res, 400, "Informe um nome válido.");
+        cat.label = b.label.trim();
+        save(db);
+        return json(res, 200, [cat]);
+      }
+      if (match && m === "DELETE") {
+        if (!auth(req, db, true)) return err(res, 401, "Acesso restrito à administração.");
+        const inUse = db.products.filter((x) => x.category === match[1]).length;
+        if (inUse > 0) return err(res, 409, `Há ${inUse} produto(s) nessa categoria. Mova-os antes de excluir.`);
+        db.categories = db.categories.filter((c) => c.id !== match[1]);
+        save(db);
+        return json(res, 200, { ok: true });
+      }
+
+      /* configurações da loja */
+      if (p === "/api/settings" && m === "GET") return json(res, 200, db.settings);
+      if (p === "/api/settings" && m === "PUT") {
+        if (!auth(req, db, true)) return err(res, 401, "Acesso restrito à administração.");
+        db.settings = { ...db.settings, ...(b || {}) };
+        save(db);
+        return json(res, 200, db.settings);
+      }
+
+      /* promoções / cupons */
+      if (p === "/api/promos" && m === "GET") {
+        if (!auth(req, db, true)) return err(res, 401, "Acesso restrito à administração.");
+        return json(res, 200, db.promos);
+      }
+      if (p === "/api/promos" && m === "POST") {
+        if (!auth(req, db, true)) return err(res, 401, "Acesso restrito à administração.");
+        const code = (b?.code || "").trim().toUpperCase();
+        if (!/^[A-Z0-9]{3,20}$/.test(code)) return err(res, 400, "Código deve ter 3–20 letras/números.");
+        if (db.promos.some((x) => x.code === code)) return err(res, 409, "Já existe um cupom com esse código.");
+        if (!(b?.value > 0)) return err(res, 400, "Informe um valor de desconto maior que zero.");
+        if (b?.type === "percent" && b.value > 90) return err(res, 400, "Desconto percentual máximo é 90%.");
+        const promo = { code, type: b.type === "fixed" ? "fixed" : "percent", value: b.value, active: b.active !== false, minOrder: b.minOrder || 0, expiresAt: b.expiresAt || null, id: "promo_" + Date.now().toString(36), usedCount: 0, createdAt: Date.now() };
+        db.promos.unshift(promo);
+        save(db);
+        return json(res, 200, [promo]);
+      }
+      if (p === "/api/promos/validate" && m === "POST") {
+        const promo = db.promos.find((x) => x.code === (b?.code || "").trim().toUpperCase());
+        if (!promo) return err(res, 404, "Cupom inválido ou não encontrado.");
+        if (!promo.active) return err(res, 400, "Este cupom está desativado.");
+        if (promo.expiresAt && Date.now() > promo.expiresAt) return err(res, 400, "Este cupom expirou.");
+        const subtotal = Number(b?.subtotal) || 0;
+        if (subtotal < promo.minOrder) return err(res, 400, `Válido para pedidos a partir de R$ ${promo.minOrder}.`);
+        const discount = promo.type === "percent" ? (subtotal * promo.value) / 100 : Math.min(promo.value, subtotal);
+        return json(res, 200, [{ promo, discount: Math.round(discount * 100) / 100 }]);
+      }
+      match = p.match(/^\/api\/promos\/([^/]+)$/);
+      if (match && m === "PUT") {
+        if (!auth(req, db, true)) return err(res, 401, "Acesso restrito à administração.");
+        const promo = db.promos.find((x) => x.id === match[1]);
+        if (!promo) return err(res, 404, "Cupom não encontrado.");
+        Object.assign(promo, b || {}, { id: promo.id, code: promo.code });
+        save(db);
+        return json(res, 200, [promo]);
+      }
+      if (match && m === "DELETE") {
+        if (!auth(req, db, true)) return err(res, 401, "Acesso restrito à administração.");
+        db.promos = db.promos.filter((x) => x.id !== match[1]);
+        save(db);
+        return json(res, 200, { ok: true });
+      }
+
+      /* desconto em massa */
+      if (p === "/api/products/bulk-discount" && m === "POST") {
+        if (!auth(req, db, true)) return err(res, 401, "Acesso restrito à administração.");
+        const percent = Number(b?.percent);
+        if (!(percent > 0 && percent <= 90)) return err(res, 400, "Percentual deve estar entre 1 e 90.");
+        const targets = db.products.filter((x) => !b?.categoryId || x.category === b.categoryId);
+        if (!targets.length) return err(res, 400, "Nenhum produto encontrado para aplicar o desconto.");
+        targets.forEach((x) => {
+          x.oldPrice = x.price;
+          x.price = Math.round(x.price * (1 - percent / 100) * 100) / 100;
+        });
+        save(db);
+        return json(res, 200, { count: targets.length });
+      }
+
+      /* produtos */
       if (m === "GET" && p === "/api/products") return json(res, 200, db.products);
       if (m === "PUT" || (m === "POST" && p === "/api/products")) {
         const user = auth(req, db, true);
@@ -216,11 +330,25 @@ http.createServer(async (req, res) => {
           items.push({ productId: prod.id, name: prod.name, image: prod.image, price: prod.price, qty });
         }
         subtotal = Math.round(subtotal * 100) / 100;
-        const shipping = subtotal >= FREE_MIN ? 0 : SHIP_FEE;
+        const { freeShipMin, shipFee } = db.settings;
+        const shipping = subtotal >= freeShipMin ? 0 : shipFee;
+
+        let discount = 0;
+        let couponCode;
+        if (b?.couponCode?.trim()) {
+          const promo = db.promos.find((x) => x.code === b.couponCode.trim().toUpperCase());
+          if (promo && promo.active && (!promo.expiresAt || Date.now() <= promo.expiresAt) && subtotal >= promo.minOrder) {
+            discount = promo.type === "percent" ? (subtotal * promo.value) / 100 : Math.min(promo.value, subtotal);
+            discount = Math.round(discount * 100) / 100;
+            couponCode = promo.code;
+            promo.usedCount += 1;
+          }
+        }
+
         items.forEach((it) => {
           db.products.find((x) => x.id === it.productId).stock -= it.qty;
         });
-        const order = { id: "TUC-" + Date.now().toString(36).toUpperCase().slice(-6), userId: user.id, customer: user.name, items, subtotal, shipping, total: Math.round((subtotal + shipping) * 100) / 100, address: b.address, payment: b.payment || "—", createdAt: Date.now() };
+        const order = { id: "TUC-" + Date.now().toString(36).toUpperCase().slice(-6), userId: user.id, customer: user.name, items, subtotal, shipping, discount, couponCode, total: Math.round((subtotal + shipping - discount) * 100) / 100, address: b.address, payment: b.payment || "—", createdAt: Date.now() };
         db.orders.unshift(order);
         save(db);
         return json(res, 200, order);

@@ -1,5 +1,5 @@
 import { api as mockApi } from "../server/api";
-import type { Address, CartItem, Category, Order, OrderStatus, Product, Review, User } from "../types";
+import type { Address, CartItem, Category, Order, OrderStatus, Product, Promo, PromoValidation, Review, Settings, User } from "../types";
 
 /**
  * Cliente de API único.
@@ -52,6 +52,26 @@ export const api = BASE
         http<void>(`/api/products/${id}`, { method: "DELETE", headers: B(token) }),
       adminSetOrderStatus: (token: string | null, id: string, status: OrderStatus) =>
         http<Order>(`/api/orders/${id}/status`, { method: "PATCH", headers: B(token), body: JSON.stringify({ status }) }),
+      createCategory: (token: string | null, label: string) =>
+        http<Category[]>("/api/categories", { method: "POST", headers: B(token), body: JSON.stringify({ label }) }).then((r) => r[0]),
+      updateCategory: (token: string | null, id: string, label: string) =>
+        http<Category[]>(`/api/categories/${id}`, { method: "PUT", headers: B(token), body: JSON.stringify({ label }) }).then((r) => r[0]),
+      deleteCategory: (token: string | null, id: string) =>
+        http<void>(`/api/categories/${id}`, { method: "DELETE", headers: B(token) }),
+      listPromos: (token: string | null) => http<Promo[]>("/api/promos", { headers: B(token) }),
+      createPromo: (token: string | null, promo: Omit<Promo, "id" | "usedCount" | "createdAt">) =>
+        http<Promo[]>("/api/promos", { method: "POST", headers: B(token), body: JSON.stringify(promo) }).then((r) => r[0]),
+      updatePromo: (token: string | null, id: string, patch: Partial<Promo>) =>
+        http<Promo[]>(`/api/promos/${id}`, { method: "PUT", headers: B(token), body: JSON.stringify(patch) }).then((r) => r[0]),
+      deletePromo: (token: string | null, id: string) =>
+        http<void>(`/api/promos/${id}`, { method: "DELETE", headers: B(token) }),
+      validatePromo: (code: string, subtotal: number) =>
+        http<PromoValidation[]>("/api/promos/validate", { method: "POST", body: JSON.stringify({ code, subtotal }) }).then((r) => r[0]),
+      bulkDiscount: (token: string | null, opts: { categoryId?: string; percent: number }) =>
+        http<{ count: number }>("/api/products/bulk-discount", { method: "POST", headers: B(token), body: JSON.stringify(opts) }).then((r) => r.count),
+      getSettings: () => http<Settings>("/api/settings"),
+      updateSettings: (token: string | null, patch: Partial<Settings>) =>
+        http<Settings>("/api/settings", { method: "PUT", headers: B(token), body: JSON.stringify(patch) }),
       resetDemo: () => http<void>("/api/reset", { method: "POST" }),
     }
   : mockApi;

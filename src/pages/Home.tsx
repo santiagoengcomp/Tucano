@@ -5,7 +5,7 @@ import { api } from "../api/client";
 import type { Product } from "../types";
 import ProductCard from "../components/ProductCard";
 import { SkeletonGrid, Ticker } from "../components/ui";
-import seed from "../data/catalog.json";
+import { useCategories } from "../api/useCategories";
 
 function useProducts() {
   const [products, setProducts] = useState<Product[] | null>(null);
@@ -156,7 +156,7 @@ export default function Home() {
   const deals = useMemo(() => (products ?? []).filter((p) => p.oldPrice && p.oldPrice > p.price), [products]);
   const best = useMemo(() => [...(products ?? [])].sort((a, b) => b.ratingCount - a.ratingCount).slice(0, 8), [products]);
   const recs = useMemo(() => [...(products ?? [])].sort((a, b) => b.rating - a.rating), [products]);
-  const cats = seed.categories as { id: string; label: string }[];
+  const cats = useCategories();
 
   return (
     <div className="animate-fadein">

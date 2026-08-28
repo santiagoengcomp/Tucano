@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { Suspense, lazy, useEffect } from "react";
 import { HashRouter, Link, Route, Routes, useLocation } from "react-router-dom";
 import { ArrowUp, SearchX } from "lucide-react";
 import Header, { BottomNav } from "./components/Header";

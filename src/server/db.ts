@@ -1,5 +1,5 @@
 import seed from "../data/catalog.json";
-import type { Order, Product, Review } from "../types";
+import type { Category, Order, Product, Promo, Review, Settings } from "../types";
 
 export type StoredUser = {
   id: string;
@@ -16,9 +16,19 @@ export type DB = {
   products: Product[];
   reviews: Review[];
   orders: Order[];
+  categories: Category[];
+  promos: Promo[];
+  settings: Settings;
 };
 
-const KEY = "tucano_db_v2";
+const KEY = "tucano_db_v3";
+
+export const DEFAULT_SETTINGS: Settings = {
+  storeName: "Tucano",
+  freeShipMin: 149,
+  shipFee: 19.9,
+  announcement: "Frete grátis acima de R$ 149 · Até 10x sem juros",
+};
 
 function buildSeed(): DB {
   const users: StoredUser[] = [
@@ -44,11 +54,37 @@ function buildSeed(): DB {
     },
   ];
   return {
-    v: 2,
+    v: 3,
     users,
     products: JSON.parse(JSON.stringify(seed.products)) as Product[],
     reviews: JSON.parse(JSON.stringify(seed.reviews)) as Review[],
     orders: [],
+    categories: JSON.parse(JSON.stringify(seed.categories)) as Category[],
+    promos: [
+      {
+        id: "promo_bemvindo",
+        code: "BEMVINDO10",
+        type: "percent",
+        value: 10,
+        active: true,
+        minOrder: 0,
+        expiresAt: null,
+        usedCount: 0,
+        createdAt: Date.now(),
+      },
+      {
+        id: "promo_frete",
+        code: "FRETE20",
+        type: "fixed",
+        value: 20,
+        active: true,
+        minOrder: 100,
+        expiresAt: null,
+        usedCount: 0,
+        createdAt: Date.now(),
+      },
+    ] as Promo[],
+    settings: { ...DEFAULT_SETTINGS },
   };
 }
 

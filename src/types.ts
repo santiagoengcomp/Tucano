@@ -72,6 +72,8 @@ export type Order = {
   items: OrderItem[];
   subtotal: number;
   shipping: number;
+  discount?: number;
+  couponCode?: string;
   total: number;
   address: Address;
   payment: string;
@@ -82,3 +84,34 @@ export type Order = {
 
 export type ToastKind = "ok" | "err" | "info";
 export type Toast = { id: number; kind: ToastKind; msg: string };
+
+/* ---------- promoções / cupons ---------- */
+export type PromoType = "percent" | "fixed";
+export type Promo = {
+  id: string;
+  code: string;
+  type: PromoType;
+  value: number; // % (percent) ou R$ (fixed)
+  active: boolean;
+  minOrder: number; // pedido mínimo para valer (0 = sem mínimo)
+  expiresAt: number | null; // timestamp ou null = sem validade
+  usedCount: number;
+  createdAt: number;
+};
+
+export type PromoValidation = {
+  promo: Promo;
+  discount: number;
+};
+
+/* ---------- configurações da loja ---------- */
+export type Settings = {
+  storeName: string;
+  freeShipMin: number; // frete grátis a partir de
+  shipFee: number; // valor do frete
+  announcement: string; // aviso exibido no topo
+};
+
+/* ---------- vendas (dashboard) ---------- */
+export type SalesPoint = { day: string; revenue: number; orders: number };
+export type CategorySlice = { name: string; value: number };

@@ -1,6 +1,6 @@
 import { loadDB, resetDB, saveDB, type StoredUser } from "./db";
 import seed from "../data/catalog.json";
-import type { Address, CartItem, Category, Order, OrderStatus, Product, Review, User } from "../types";
+import type { Address, CartItem, Category, Order, OrderStatus, Product, Promo, PromoValidation, Review, Settings, User } from "../types";
 
 /**
  * Backend simulado (modo demo): mesmas rotas e contratos do servidor Node
@@ -84,7 +84,8 @@ function validateEmail(email: string) {
 export const api = {
   async listCategories(): Promise<Category[]> {
     await delay();
-    return JSON.parse(JSON.stringify(seed.categories)) as Category[];
+    const db = loadDB();
+    return JSON.parse(JSON.stringify(db.categories)) as Category[];
   },
 
   async listProducts(): Promise<Product[]> {
@@ -182,7 +183,7 @@ export const api = {
     return toUser(stored);
   },
 
-  async createOrder(token: string | null, body: { items: CartItem[]; address: Address; payment: string }): Promise<Order> {
+  async createOrder(token: string | null, body: { items: CartItem[]; address: Address; payment: string; couponCode?: string }): Promise<Order> {
     await delay();
     const user = authUser(token);
     const db = loadDB();
@@ -199,7 +200,21 @@ export const api = {
       items.push({ productId: p.id, name: p.name, image: p.image, price: p.price, qty });
     }
     subtotal = Math.round(subtotal * 100) / 100;
-    const shipping = subtotal >= FREE_SHIPPING_MIN ? 0 : SHIPPING_FEE;
+    const { freeShipMin, shipFee } = db.settings;
+    const shipping = subtotal >= freeShipMin ? 0 : shipFee;
+
+    let discount = 0;
+    let couponCode: string | undefined;
+    if (body.couponCode?.trim()) {
+      const promo = db.promos.find((p) => p.code === body.couponCode!.trim().toUpperCase());
+      if (promo && promo.active && (!promo.expiresAt || Date.now() <= promo.expiresAt) && subtotal >= promo.minOrder) {
+        discount = promo.type === "percent" ? (subtotal * promo.value) / 100 : Math.min(promo.value, subtotal);
+        discount = Math.round(discount * 100) / 100;
+        couponCode = promo.code;
+        promo.usedCount += 1;
+      }
+    }
+
     for (const it of items) {
       const p = db.products.find((x) => x.id === it.productId)!;
       p.stock -= it.qty;
@@ -211,7 +226,9 @@ export const api = {
       items,
       subtotal,
       shipping,
-      total: Math.round((subtotal + shipping) * 100) / 100,
+      discount,
+      couponCode,
+      total: Math.round((subtotal + shipping - discount) * 100) / 100,
       address: JSON.parse(JSON.stringify(body.address)),
       payment: body.payment,
       createdAt: Date.now(),
@@ -309,6 +326,134 @@ export const api = {
     }
     saveDB(db);
     return JSON.parse(JSON.stringify(o));
+  },
+
+  /* ---------- categorias (CRUD) ---------- */
+  async createCategory(token: string | null, label: string): Promise<Category> {
+    await delay();
+    requireAdmin(token);
+    const db = loadDB();
+    const clean = label.trim();
+    if (clean.length < 2) throw new ApiError("Informe um nome de categoria válido.");
+    const id = clean
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/(^-|-$)/g, "");
+    if (db.categories.some((c) => c.id === id)) throw new ApiError("Já existe uma categoria com esse nome.", 409);
+    const cat: Category = { id, label: clean };
+    db.categories.push(cat);
+    saveDB(db);
+    return { ...cat };
+  },
+
+  async updateCategory(token: string | null, id: string, label: string): Promise<Category> {
+    await delay();
+    requireAdmin(token);
+    const db = loadDB();
+    const cat = db.categories.find((c) => c.id === id);
+    if (!cat) throw new ApiError("Categoria não encontrada.", 404);
+    if (label.trim().length < 2) throw new ApiError("Informe um nome válido.");
+    cat.label = label.trim();
+    saveDB(db);
+    return { ...cat };
+  },
+
+  async deleteCategory(token: string | null, id: string): Promise<void> {
+    await delay();
+    requireAdmin(token);
+    const db = loadDB();
+    const inUse = db.products.filter((p) => p.category === id).length;
+    if (inUse > 0) throw new ApiError(`Há ${inUse} produto(s) nessa categoria. Mova-os antes de excluir.`, 409);
+    db.categories = db.categories.filter((c) => c.id !== id);
+    saveDB(db);
+  },
+
+  /* ---------- promoções / cupons ---------- */
+  async listPromos(token: string | null): Promise<Promo[]> {
+    await delay();
+    requireAdmin(token);
+    const db = loadDB();
+    return JSON.parse(JSON.stringify(db.promos)) as Promo[];
+  },
+
+  async createPromo(token: string | null, promo: Omit<Promo, "id" | "usedCount" | "createdAt">): Promise<Promo> {
+    await delay();
+    requireAdmin(token);
+    const db = loadDB();
+    const code = promo.code.trim().toUpperCase();
+    if (!/^[A-Z0-9]{3,20}$/.test(code)) throw new ApiError("Código deve ter 3–20 letras/números.");
+    if (db.promos.some((p) => p.code === code)) throw new ApiError("Já existe um cupom com esse código.", 409);
+    if (!(promo.value > 0)) throw new ApiError("Informe um valor de desconto maior que zero.");
+    if (promo.type === "percent" && promo.value > 90) throw new ApiError("Desconto percentual máximo é 90%.");
+    const full: Promo = { ...promo, code, id: "promo_" + Date.now().toString(36), usedCount: 0, createdAt: Date.now() };
+    db.promos.unshift(full);
+    saveDB(db);
+    return { ...full };
+  },
+
+  async updatePromo(token: string | null, id: string, patch: Partial<Promo>): Promise<Promo> {
+    await delay();
+    requireAdmin(token);
+    const db = loadDB();
+    const promo = db.promos.find((p) => p.id === id);
+    if (!promo) throw new ApiError("Cupom não encontrado.", 404);
+    Object.assign(promo, patch, { id: promo.id, code: promo.code });
+    saveDB(db);
+    return { ...promo };
+  },
+
+  async deletePromo(token: string | null, id: string): Promise<void> {
+    await delay();
+    requireAdmin(token);
+    const db = loadDB();
+    db.promos = db.promos.filter((p) => p.id !== id);
+    saveDB(db);
+  },
+
+  async validatePromo(code: string, subtotal: number): Promise<PromoValidation> {
+    await delay();
+    const db = loadDB();
+    const promo = db.promos.find((p) => p.code === code.trim().toUpperCase());
+    if (!promo) throw new ApiError("Cupom inválido ou não encontrado.", 404);
+    if (!promo.active) throw new ApiError("Este cupom está desativado.");
+    if (promo.expiresAt && Date.now() > promo.expiresAt) throw new ApiError("Este cupom expirou.");
+    if (subtotal < promo.minOrder) throw new ApiError(`Válido para pedidos a partir de ${promo.minOrder.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}.`);
+    const discount = promo.type === "percent" ? (subtotal * promo.value) / 100 : Math.min(promo.value, subtotal);
+    return { promo: { ...promo }, discount: Math.round(discount * 100) / 100 };
+  },
+
+  /* ---------- desconto em massa ---------- */
+  async bulkDiscount(token: string | null, opts: { categoryId?: string; percent: number }): Promise<number> {
+    await delay();
+    requireAdmin(token);
+    const db = loadDB();
+    if (!(opts.percent > 0 && opts.percent <= 90)) throw new ApiError("Percentual deve estar entre 1 e 90.");
+    const targets = db.products.filter((p) => !opts.categoryId || p.category === opts.categoryId);
+    if (!targets.length) throw new ApiError("Nenhum produto encontrado para aplicar o desconto.");
+    for (const p of targets) {
+      p.oldPrice = p.price;
+      p.price = Math.round(p.price * (1 - opts.percent / 100) * 100) / 100;
+    }
+    saveDB(db);
+    return targets.length;
+  },
+
+  /* ---------- configurações da loja ---------- */
+  async getSettings(): Promise<Settings> {
+    await delay();
+    const db = loadDB();
+    return { ...db.settings };
+  },
+
+  async updateSettings(token: string | null, patch: Partial<Settings>): Promise<Settings> {
+    await delay();
+    requireAdmin(token);
+    const db = loadDB();
+    db.settings = { ...db.settings, ...patch };
+    saveDB(db);
+    return { ...db.settings };
   },
 
   async resetDemo(): Promise<void> {

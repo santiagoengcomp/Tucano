@@ -16,11 +16,7 @@ import { useStore } from "../context/Store";
 import type { Product } from "../types";
 import { Logo } from "./ui";
 import { brl } from "../utils";
-import seed from "../data/catalog.json";
-
-const CAT_LABEL: Record<string, string> = Object.fromEntries(
-  (seed.categories as { id: string; label: string }[]).map((c) => [c.id, c.label]),
-);
+import { categoryLabel, useCategories } from "../api/useCategories";
 
 let cache: Product[] | null = null;
 
@@ -49,6 +45,7 @@ function SearchBox({ autoFocus = false, onDone }: { autoFocus?: boolean; onDone?
   const [open, setOpen] = useState(false);
   const nav = useNavigate();
   const products = useCatalog();
+  const categories = useCategories();
   const wrap = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -115,7 +112,7 @@ function SearchBox({ autoFocus = false, onDone }: { autoFocus?: boolean; onDone?
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-[13.5px] font-semibold">{p.name}</span>
                 <span className="block text-[11.5px] text-ink-400">
-                  {CAT_LABEL[p.category] ?? p.category} · {p.brand}
+                  {categoryLabel(categories, p.category)} · {p.brand}
                 </span>
               </span>
               <span className="text-[13px] font-bold">{brl(p.price)}</span>
@@ -148,7 +145,7 @@ export default function Header() {
     return () => document.removeEventListener("mousedown", onDoc);
   }, []);
 
-  const cats = seed.categories as { id: string; label: string }[];
+  const cats = useCategories();
   const first = user?.name.split(" ")[0];
 
   const itemCls =

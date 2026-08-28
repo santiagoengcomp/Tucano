@@ -4,7 +4,7 @@ import confetti from "canvas-confetti";
 import { Check, ChevronDown, CreditCard, MapPin, QrCode, ShoppingCart, Zap } from "lucide-react";
 import { api, FREE_SHIPPING_MIN, ORDER_STAGES, SHIPPING_FEE } from "../api/client";
 import { useStore } from "../context/Store";
-import type { Address, Order, Product } from "../types";
+import type { Address, Order, Product, Settings } from "../types";
 import { StatusChip } from "../components/ui";
 import { brl, maskCEP, maskCard, maskExpiry, uid, validCard, validCEP, validExpiry } from "../utils";
 
@@ -49,9 +49,16 @@ export default function Checkout() {
   const [card, setCard] = useState({ num: "", name: "", exp: "", cvv: "" });
   const [placing, setPlacing] = useState(false);
 
+  const [couponInput, setCouponInput] = useState("");
+  const [coupon, setCoupon] = useState<{ code: string; discount: number } | null>(null);
+  const [couponMsg, setCouponMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [checkingCoupon, setCheckingCoupon] = useState(false);
+  const [shopSettings, setShopSettings] = useState<Settings | null>(null);
+
   useEffect(() => {
     let alive = true;
     api.listProducts().then((p) => alive && setProducts(p));
+    api.getSettings().then((s) => alive && setShopSettings(s)).catch(() => {});
     return () => {
       alive = false;
     };
@@ -102,9 +109,35 @@ export default function Checkout() {
     [products, cart],
   );
   const subtotal = rows.reduce((s, r) => s + r.p.price * r.qty, 0);
-  const shipping = subtotal >= FREE_SHIPPING_MIN ? 0 : SHIPPING_FEE;
-  const pixOff = payMethod === "pix" ? Math.round(subtotal * 0.05 * 100) / 100 : 0;
-  const total = Math.round((subtotal + shipping - pixOff) * 100) / 100;
+  const freeShipMin = shopSettings?.freeShipMin ?? FREE_SHIPPING_MIN;
+  const shipFee = shopSettings?.shipFee ?? SHIPPING_FEE;
+  const shipping = subtotal >= freeShipMin ? 0 : shipFee;
+  const couponOff = coupon?.discount ?? 0;
+  const pixOff = payMethod === "pix" ? Math.round((subtotal - couponOff) * 0.05 * 100) / 100 : 0;
+  const total = Math.round((subtotal + shipping - couponOff - pixOff) * 100) / 100;
+
+  const applyCoupon = async () => {
+    const code = couponInput.trim();
+    if (!code) return;
+    setCheckingCoupon(true);
+    setCouponMsg(null);
+    try {
+      const v = await api.validatePromo(code, subtotal);
+      setCoupon({ code: v.promo.code, discount: v.discount });
+      setCouponMsg({ ok: true, text: `Cupom ${v.promo.code} aplicado: −${brl(v.discount)}` });
+    } catch (e) {
+      setCoupon(null);
+      setCouponMsg({ ok: false, text: (e as Error).message });
+    } finally {
+      setCheckingCoupon(false);
+    }
+  };
+
+  const removeCoupon = () => {
+    setCoupon(null);
+    setCouponInput("");
+    setCouponMsg(null);
+  };
 
   const addrValid =
     addrForm.name.trim().length >= 2 &&
@@ -176,7 +209,7 @@ export default function Checkout() {
       const address: Address = { ...addrForm, id: selectedAddr && !newAddr ? selectedAddr : uid() };
       const payment =
         payMethod === "pix" ? "Pix (aprovação imediata)" : `Cartão final ${card.num.replace(/\D/g, "").slice(-4)}`;
-      const order = await api.createOrder(token, { items: cart, address, payment });
+      const order = await api.createOrder(token, { items: cart, address, payment, couponCode: coupon?.code });
       if (newAddr || !user?.addresses.some((a) => a.id === selectedAddr)) {
         await api.updateProfile(token, { addresses: [...(user?.addresses ?? []).filter((a) => a.id !== address.id), address] }).catch(() => {});
         refreshUser().catch(() => {});
@@ -361,11 +394,44 @@ export default function Checkout() {
         {/* resumo */}
         <aside className="h-fit rounded-2xl border border-ink-100 bg-card p-5 shadow-card lg:sticky lg:top-32">
           <h2 className="font-display text-[17px] font-extrabold text-ink-900">Resumo</h2>
+
+          {coupon ? (
+            <div className="mt-3 flex items-center justify-between rounded-lg bg-ok-100 px-3 py-2">
+              <span className="font-mono text-[13px] font-extrabold text-ok-700">{coupon.code}</span>
+              <button onClick={removeCoupon} className="text-[11.5px] font-bold text-ok-700 underline-offset-2 hover:underline">
+                remover
+              </button>
+            </div>
+          ) : (
+            <div className="mt-3">
+              <div className="flex gap-2">
+                <input
+                  value={couponInput}
+                  onChange={(e) => setCouponInput(e.target.value.toUpperCase())}
+                  placeholder="Cupom de desconto"
+                  className="field !py-2 font-mono !text-[13px] uppercase"
+                />
+                <button onClick={applyCoupon} disabled={checkingCoupon || !couponInput.trim()} className="btn-dark shrink-0 !px-4 !py-2 !text-[13px]">
+                  {checkingCoupon ? "…" : "Aplicar"}
+                </button>
+              </div>
+              {couponMsg && (
+                <p className={`mt-1.5 text-[12px] font-semibold ${couponMsg.ok ? "text-ok-600" : "text-danger-600"}`}>{couponMsg.text}</p>
+              )}
+            </div>
+          )}
+
           <dl className="mt-3 space-y-2 text-[14px]">
             <div className="flex justify-between text-ink-600">
               <dt>Itens ({rows.reduce((s, r) => s + r.qty, 0)})</dt>
               <dd className="font-bold text-ink-800">{brl(subtotal)}</dd>
             </div>
+            {couponOff > 0 && (
+              <div className="flex justify-between text-ok-700">
+                <dt>Cupom {coupon?.code}</dt>
+                <dd className="font-bold">− {brl(couponOff)}</dd>
+              </div>
+            )}
             <div className="flex justify-between text-ink-600">
               <dt>Frete</dt>
               <dd className={`font-bold ${shipping === 0 ? "text-ok-600" : "text-ink-800"}`}>{shipping === 0 ? "Grátis" : brl(shipping)}</dd>

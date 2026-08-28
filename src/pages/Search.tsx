@@ -5,9 +5,7 @@ import { api } from "../api/client";
 import type { Product } from "../types";
 import ProductCard from "../components/ProductCard";
 import { EmptyState, SkeletonGrid, Stars } from "../components/ui";
-import seed from "../data/catalog.json";
-
-const CATS = seed.categories as { id: string; label: string }[];
+import { categoryLabel, useCategories } from "../api/useCategories";
 
 function FilterPanel({
   params,
@@ -34,6 +32,7 @@ function FilterPanel({
   setInStock: (v: boolean) => void;
   clearAll: () => void;
 }) {
+  const CATS = useCategories();
   const cat = params.get("cat");
   const oferta = params.get("oferta") === "1";
   const section = "mb-5";
@@ -108,6 +107,7 @@ function FilterPanel({
 }
 
 export default function Search() {
+  const CATS = useCategories();
   const [params, setParams] = useSearchParams();
   const [products, setProducts] = useState<Product[] | null>(null);
   const [min, setMin] = useState(params.get("min") ?? "");
