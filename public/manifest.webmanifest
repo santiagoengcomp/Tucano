@@ -1,0 +1,11 @@
+{
+  "name": "Tucano Marketplace",
+  "short_name": "Tucano",
+  "description": "Marketplace completo: catálogo, busca, carrinho, pedidos e admin.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f2f4f6",
+  "theme_color": "#131f2b",
+  "lang": "pt-BR",
+  "icons": []
+}

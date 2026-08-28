@@ -1,1 +1,171 @@
 @import "tailwindcss";
+
+@theme {
+  --font-display: "Bricolage Grotesque", "Instrument Sans", ui-sans-serif, sans-serif;
+  --font-sans: "Instrument Sans", ui-sans-serif, system-ui, sans-serif;
+
+  --color-ink-950: #0c141d;
+  --color-ink-900: #101a24;
+  --color-ink-800: #16222e;
+  --color-ink-700: #1f2f3d;
+  --color-ink-600: #2c4257;
+  --color-ink-500: #47617a;
+  --color-ink-400: #6d8296;
+  --color-ink-300: #9fb0bf;
+  --color-ink-200: #cfd9e2;
+  --color-ink-100: #e7edf2;
+  --color-ink-50: #f4f7f9;
+
+  --color-paper: #f2f4f6;
+  --color-card: #fdfdfc;
+
+  --color-accent-600: #e07f00;
+  --color-accent-500: #ff9e1b;
+  --color-accent-400: #ffb84d;
+  --color-accent-100: #ffedd0;
+  --color-accent-50: #fff7e8;
+
+  --color-turbo-700: #0b666e;
+  --color-turbo-600: #0e7c86;
+  --color-turbo-500: #1597a3;
+  --color-turbo-100: #d9f1f3;
+
+  --color-ok-700: #136a3b;
+  --color-ok-600: #177a45;
+  --color-ok-100: #def3e7;
+  --color-warn-700: #96590a;
+  --color-warn-600: #b26a00;
+  --color-warn-100: #fdeecf;
+  --color-danger-700: #a93030;
+  --color-danger-600: #c23b3b;
+  --color-danger-100: #fbe3e3;
+
+  --shadow-lift: 0 10px 30px -12px rgb(16 26 36 / 0.25);
+  --shadow-card: 0 1px 2px rgb(16 26 36 / 0.06), 0 8px 24px -16px rgb(16 26 36 / 0.18);
+
+  --animate-marquee: marquee 30s linear infinite;
+  --animate-pop: pop 0.35s cubic-bezier(0.2, 1.4, 0.4, 1) both;
+  --animate-rise: rise 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+  --animate-fadein: fadein 0.3s ease both;
+  --animate-drawer: drawer 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
+  --animate-shimmer: shimmer 1.4s linear infinite;
+
+  @keyframes marquee {
+    to {
+      transform: translateX(-50%);
+    }
+  }
+  @keyframes pop {
+    from {
+      transform: scale(0.55);
+    }
+    to {
+      transform: scale(1);
+    }
+  }
+  @keyframes rise {
+    from {
+      opacity: 0;
+      transform: translateY(14px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  @keyframes fadein {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+  @keyframes drawer {
+    from {
+      transform: translateX(100%);
+    }
+    to {
+      transform: none;
+    }
+  }
+  @keyframes shimmer {
+    from {
+      background-position: -400px 0;
+    }
+    to {
+      background-position: 400px 0;
+    }
+  }
+}
+
+@layer base {
+  html {
+    -webkit-tap-highlight-color: transparent;
+    scroll-behavior: smooth;
+  }
+  body {
+    font-family: var(--font-sans);
+    background: var(--color-paper);
+    color: var(--color-ink-800);
+    font-size: 15px;
+    -webkit-font-smoothing: antialiased;
+    overscroll-behavior-y: none;
+  }
+  button {
+    cursor: pointer;
+  }
+  input,
+  select,
+  textarea {
+    font: inherit;
+  }
+  ::selection {
+    background: var(--color-accent-100);
+  }
+}
+
+@utility no-scrollbar {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+@utility pb-safe {
+  padding-bottom: max(env(safe-area-inset-bottom), 0px);
+}
+
+@utility pt-safe {
+  padding-top: max(env(safe-area-inset-top), 0px);
+}
+
+@utility skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--color-ink-100) 25%,
+    #f2f5f8 40%,
+    var(--color-ink-100) 60%
+  );
+  background-size: 800px 100%;
+  animation: var(--animate-shimmer);
+  border-radius: 8px;
+}
+
+@layer components {
+  .field {
+    @apply w-full rounded-lg border border-ink-200 bg-card px-3 py-2.5 text-[15px] text-ink-800 outline-none transition placeholder:text-ink-300 focus:border-accent-500 focus:ring-2 focus:ring-accent-500/30;
+  }
+  .field-label {
+    @apply mb-1 block text-[12.5px] font-semibold text-ink-500;
+  }
+  .btn-accent {
+    @apply inline-flex items-center justify-center gap-2 rounded-full bg-accent-500 px-5 py-2.5 text-[14.5px] font-bold text-ink-900 transition hover:bg-accent-400 active:scale-[0.97] disabled:pointer-events-none disabled:opacity-50;
+  }
+  .btn-dark {
+    @apply inline-flex items-center justify-center gap-2 rounded-full bg-ink-800 px-5 py-2.5 text-[14.5px] font-bold text-white transition hover:bg-ink-700 active:scale-[0.97] disabled:pointer-events-none disabled:opacity-50;
+  }
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 rounded-full border border-ink-200 bg-card px-5 py-2.5 text-[14.5px] font-semibold text-ink-700 transition hover:border-ink-300 hover:bg-ink-50 active:scale-[0.97] disabled:pointer-events-none disabled:opacity-50;
+  }
+}
